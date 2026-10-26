@@ -23,7 +23,7 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
     uint256 public constant REWARD_PRECISION = 1e18;
 
     // The optional strategy where market assets are deployed.
-    IHiveStrategy hiveStrategy;
+    IHiveStrategy public hiveStrategy;
 
     uint256 public apyBps;
     uint256 public totalRewardsAccrued;
@@ -38,13 +38,11 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
     uint256 public withdrawTolerance;
 
     error ZeroAddress();
-    error InvalidRewardAmount(uint256 reward);
     error WrongStrategy();
     error CannotRescueAsset();
     error InsufficientLiquidity();
 
     event ApyBpsChanged(uint256 oldApy, uint256 newApy);
-    event RewardPoolChanged(address oldRewardPool, address newRewardPool);
     event RewardsAccrued(
         uint256 reward,
         uint256 totalRewardsAccrued,
@@ -52,7 +50,7 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
     );
     event RewardsFunded(address from, uint256 amount);
     event ExcessRewardsWithdrawn(address indexed to, uint256 amount);
-    event ChnageStrategy(address oldHiveStrategy, address newHiveStrategy);
+    event ChangeStrategy(address oldHiveStrategy, address newHiveStrategy);
     event TokenRescued(
         address indexed token,
         address indexed to,
@@ -77,10 +75,6 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
 
     function getUserSetLength() public view onlyOwner returns (uint256) {
         return userSet.length();
-    }
-
-    function getAllUsers() public view onlyOwner returns (address[] memory) {
-        return userSet.values();
     }
 
     function getUsers(
@@ -328,7 +322,7 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
             hiveStrategy.deposit(accountedAssets);
         }
 
-        emit ChnageStrategy(address(oldStrategy), address(hiveStrategy));
+        emit ChangeStrategy(address(oldStrategy), address(hiveStrategy));
 
         uint256 oldTolerance = withdrawTolerance;
         withdrawTolerance = _withdrawTolerance;
@@ -398,9 +392,7 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
             return 0;
         }
 
-        if (address(hiveStrategy) != address(0)) {
-            _deployToStrategy(reward);
-        }
+        _deployToStrategy(reward);
 
         accountedAssets += reward;
         totalRewardsAccrued += reward;
