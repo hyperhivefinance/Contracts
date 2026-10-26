@@ -39,7 +39,6 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
 
     error ZeroAddress();
     error InvalidRewardAmount(uint256 reward);
-    error InsufficientReward();
     error WrongStrategy();
     error CannotRescueAsset();
     error InsufficientLiquidity();
@@ -109,7 +108,7 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         return retUsers;
     }
 
-    function previewAccruedReward() public view returns (uint256) {
+    function _previewScheduledReward() internal view returns (uint256) {
         if (accountedAssets == 0 || totalSupply() == 0 || apyBps == 0) {
             return 0;
         }
@@ -122,6 +121,23 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
 
         // Rewards accrue linearly between settlements using the configured annual rate.
         return Math.mulDiv(accountedAssets, apyBps * elapsed, BPS * YEAR);
+    }
+
+    function previewAccruedReward() public view returns (uint256) {
+        uint256 scheduledReward = _previewScheduledReward();
+
+        uint256 backing = IERC20(asset()).balanceOf(address(this));
+        if (address(hiveStrategy) != address(0)) {
+            backing += hiveStrategy.principal();
+        }
+
+        if (backing <= accountedAssets) {
+            return 0;
+        }
+
+        uint256 availableRewardBacking = backing - accountedAssets;
+
+        return Math.min(scheduledReward, availableRewardBacking);
     }
 
     /// @dev Includes rewards accrued since the last settlement so ERC4626 previews use the latest share value.
@@ -139,7 +155,7 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
             actualBalance += hiveStrategy.principal();
         }
 
-        uint256 requiredBalance = accountedAssets + previewAccruedReward();
+        uint256 requiredBalance = accountedAssets + _previewScheduledReward();
 
         if (actualBalance >= requiredBalance) {
             sufficient = true;
@@ -367,17 +383,6 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         lastAccrualTime = block.timestamp;
         if (reward == 0) {
             return 0;
-        }
-
-        // Accrual is recognized only when the market has enough backing to pay it.
-        uint256 _balance = IERC20(asset()).balanceOf(address(this));
-
-        if (address(hiveStrategy) != address(0)) {
-            _balance += hiveStrategy.principal();
-        }
-
-        if (_balance < accountedAssets + reward) {
-            revert InsufficientReward();
         }
 
         if (address(hiveStrategy) != address(0)) {
