@@ -41,14 +41,23 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
     error InsufficientReward();
     error WrongStrategy();
     error CannotRescueAsset();
+    error InsufficientLiquidity();
 
     event ApyBpsChanged(uint256 oldApy, uint256 newApy);
     event RewardPoolChanged(address oldRewardPool, address newRewardPool);
-    event RewardsAccrued(uint256 reward, uint256 totalRewardsAccrued, uint256 accRewardPerShare);
+    event RewardsAccrued(
+        uint256 reward,
+        uint256 totalRewardsAccrued,
+        uint256 accRewardPerShare
+    );
     event RewardsFunded(address from, uint256 amount);
     event ExcessRewardsWithdrawn(address indexed to, uint256 amount);
     event ChnageStrategy(address oldHiveStrategy, address newHiveStrategy);
-    event TokenRescued(address indexed token, address indexed to, uint256 amount);
+    event TokenRescued(
+        address indexed token,
+        address indexed to,
+        uint256 amount
+    );
 
     constructor(
         IERC20 _assets,
@@ -73,7 +82,10 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         return userSet.values();
     }
 
-    function getUsers(uint256 from, uint256 to) public view onlyOwner returns (address[] memory) {
+    function getUsers(
+        uint256 from,
+        uint256 to
+    ) public view onlyOwner returns (address[] memory) {
         uint256 userLength = userSet.length();
 
         if (from >= userLength || to <= from) {
@@ -115,7 +127,11 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         return accountedAssets + previewAccruedReward();
     }
 
-    function rewardFundingStatus() external view returns (uint256 shortfall, bool sufficient) {
+    function rewardFundingStatus()
+        external
+        view
+        returns (uint256 shortfall, bool sufficient)
+    {
         uint256 actualBalance = IERC20(asset()).balanceOf(address(this));
         if (address(hiveStrategy) != address(0)) {
             actualBalance += hiveStrategy.principal();
@@ -159,7 +175,10 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         return _accrueRewards();
     }
 
-    function deposit(uint256 assets, address receiver) public override nonReentrant whenNotPaused returns (uint256 shares) {
+    function deposit(
+        uint256 assets,
+        address receiver
+    ) public override nonReentrant whenNotPaused returns (uint256 shares) {
         if (assets == 0) {
             return 0;
         }
@@ -175,7 +194,10 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         userSet.add(msg.sender);
     }
 
-    function mint(uint256 shares, address receiver) public override nonReentrant whenNotPaused returns (uint256 assets) {
+    function mint(
+        uint256 shares,
+        address receiver
+    ) public override nonReentrant whenNotPaused returns (uint256 assets) {
         if (shares == 0) {
             return 0;
         }
@@ -229,9 +251,13 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         accountedAssets -= assets;
     }
 
-    function setStrategy(IHiveStrategy _hiveStrategy) external onlyOwner nonReentrant {
+    function setStrategy(
+        IHiveStrategy _hiveStrategy
+    ) external onlyOwner nonReentrant {
         if (
-            address(_hiveStrategy) != address(0) && (_hiveStrategy.asset() != asset() || _hiveStrategy.market() != address(this))
+            address(_hiveStrategy) != address(0) &&
+            (_hiveStrategy.asset() != asset() ||
+                _hiveStrategy.market() != address(this))
         ) {
             revert WrongStrategy();
         }
@@ -250,14 +276,20 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         hiveStrategy = _hiveStrategy;
 
         if (address(hiveStrategy) != address(0)) {
-            IERC20(asset()).forceApprove(address(hiveStrategy), type(uint256).max);
+            IERC20(asset()).forceApprove(
+                address(hiveStrategy),
+                type(uint256).max
+            );
             hiveStrategy.deposit(accountedAssets);
         }
 
         emit ChnageStrategy(address(oldStrategy), address(hiveStrategy));
     }
 
-    function setApyBps(uint256 _apyBps, bool needAccrue) external onlyOwner nonReentrant {
+    function setApyBps(
+        uint256 _apyBps,
+        bool needAccrue
+    ) external onlyOwner nonReentrant {
         if (needAccrue) {
             _accrueRewards();
         }
@@ -267,7 +299,11 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         emit ApyBpsChanged(_oldBps, _apyBps);
     }
 
-    function rescueToken(IERC20 token, address to, uint256 amount) external onlyOwner nonReentrant {
+    function rescueToken(
+        IERC20 token,
+        address to,
+        uint256 amount
+    ) external onlyOwner nonReentrant {
         if (address(token) == address(0) || to == address(0)) {
             revert ZeroAddress();
         }
@@ -282,7 +318,10 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
     }
 
     /// @notice Withdraws only backing that is not required for principal or accrued rewards.
-    function withdrawExcessRewards(address to, uint256 amount) external onlyOwner nonReentrant {
+    function withdrawExcessRewards(
+        address to,
+        uint256 amount
+    ) external onlyOwner nonReentrant {
         if (to == address(0)) {
             revert ZeroAddress();
         }
@@ -347,8 +386,14 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
     }
 
     function _ensureLiquidity(uint256 assets) internal {
-        if (address(hiveStrategy) != address(0)) {
-            hiveStrategy.withdraw(assets);
+        if (address(hiveStrategy) == address(0)) {
+            return;
+        }
+
+        hiveStrategy.withdraw(assets);
+        uint256 balance = IERC20(asset()).balanceOf(address(this));
+        if (balance < assets) {
+            revert InsufficientLiquidity();
         }
     }
 }
