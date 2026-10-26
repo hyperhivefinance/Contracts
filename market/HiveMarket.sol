@@ -36,13 +36,17 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
     // Principal plus rewards that have already been recognized by the market.
     uint256 public accountedAssets;
     uint256 public withdrawTolerance;
+    uint256 public maxApyBps = 10_000;
 
     error ZeroAddress();
     error WrongStrategy();
     error CannotRescueAsset();
     error InsufficientLiquidity();
+    error ApyBpsExceedsMaximum(uint256 requested, uint256 maximum);
+    error MaxApyBpsBelowCurrentApy(uint256 requested, uint256 currentApy);
 
     event ApyBpsChanged(uint256 oldApy, uint256 newApy);
+    event MaxApyBpsChanged(uint256 oldMaxApyBps, uint256 newMaxApyBps);
     event RewardsAccrued(
         uint256 reward,
         uint256 totalRewardsAccrued,
@@ -331,11 +335,26 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
     }
 
     function setApyBps(uint256 _apyBps) external onlyOwner nonReentrant {
+        if (_apyBps > maxApyBps) {
+            revert ApyBpsExceedsMaximum(_apyBps, maxApyBps);
+        }
+
         _accrueRewards();
 
         uint256 _oldBps = apyBps;
         apyBps = _apyBps;
         emit ApyBpsChanged(_oldBps, _apyBps);
+    }
+
+    function setMaxApyBps(uint256 _maxApyBps) external onlyOwner {
+        if (_maxApyBps < apyBps) {
+            revert MaxApyBpsBelowCurrentApy(_maxApyBps, apyBps);
+        }
+
+        uint256 oldMaxApyBps = maxApyBps;
+        maxApyBps = _maxApyBps;
+
+        emit MaxApyBpsChanged(oldMaxApyBps, _maxApyBps);
     }
 
     function rescueToken(
