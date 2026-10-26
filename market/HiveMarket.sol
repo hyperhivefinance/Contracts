@@ -35,6 +35,7 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
 
     // Principal plus rewards that have already been recognized by the market.
     uint256 public accountedAssets;
+    uint256 public withdrawTolerance;
 
     error ZeroAddress();
     error InvalidRewardAmount(uint256 reward);
@@ -58,6 +59,7 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         address indexed to,
         uint256 amount
     );
+    event WithdrawToleranceChanged(uint256 oldTolerance, uint256 newTolerance);
 
     constructor(
         IERC20 _assets,
@@ -251,8 +253,17 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         accountedAssets -= assets;
     }
 
+    function setStrategyWithdrawTolerance(
+        uint256 tolerance
+    ) external onlyOwner {
+        uint256 oldTolerance = withdrawTolerance;
+        withdrawTolerance = tolerance;
+        emit WithdrawToleranceChanged(oldTolerance, tolerance);
+    }
+
     function setStrategy(
-        IHiveStrategy _hiveStrategy
+        IHiveStrategy _hiveStrategy,
+        uint256 _withdrawTolerance
     ) external onlyOwner nonReentrant {
         if (
             address(_hiveStrategy) != address(0) &&
@@ -284,6 +295,11 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         }
 
         emit ChnageStrategy(address(oldStrategy), address(hiveStrategy));
+
+        uint256 oldTolerance = withdrawTolerance;
+        withdrawTolerance = _withdrawTolerance;
+
+        emit WithdrawToleranceChanged(oldTolerance, _withdrawTolerance);
     }
 
     function setApyBps(
@@ -386,13 +402,27 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
     }
 
     function _ensureLiquidity(uint256 assets) internal {
+        IERC20 token = IERC20(asset());
+        uint256 balanceBefore = token.balanceOf(address(this));
+
         if (address(hiveStrategy) == address(0)) {
+            if (balanceBefore < assets) {
+                revert InsufficientLiquidity();
+            }
             return;
         }
 
         hiveStrategy.withdraw(assets);
-        uint256 balance = IERC20(asset()).balanceOf(address(this));
-        if (balance < assets) {
+
+        uint256 balanceAfter = token.balanceOf(address(this));
+
+        uint256 received = balanceAfter - balanceBefore;
+
+        if (received < assets && assets - received > withdrawTolerance) {
+            revert InsufficientLiquidity();
+        }
+
+        if (balanceAfter < assets) {
             revert InsufficientLiquidity();
         }
     }
