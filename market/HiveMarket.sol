@@ -108,28 +108,10 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         return retUsers;
     }
 
-    function _previewScheduledReward() internal view returns (uint256) {
-        if (accountedAssets == 0 || totalSupply() == 0 || apyBps == 0) {
-            return 0;
-        }
-
-        if (lastAccrualTime >= block.timestamp) {
-            return 0;
-        }
-
-        uint256 elapsed = block.timestamp - lastAccrualTime;
-
-        // Rewards accrue linearly between settlements using the configured annual rate.
-        return Math.mulDiv(accountedAssets, apyBps * elapsed, BPS * YEAR);
-    }
-
     function previewAccruedReward() public view returns (uint256) {
         uint256 scheduledReward = _previewScheduledReward();
 
-        uint256 backing = IERC20(asset()).balanceOf(address(this));
-        if (address(hiveStrategy) != address(0)) {
-            backing += hiveStrategy.principal();
-        }
+        uint256 backing = _availableLiquidity();
 
         if (backing <= accountedAssets) {
             return 0;
@@ -150,11 +132,7 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         view
         returns (uint256 shortfall, bool sufficient)
     {
-        uint256 actualBalance = IERC20(asset()).balanceOf(address(this));
-        if (address(hiveStrategy) != address(0)) {
-            actualBalance += hiveStrategy.principal();
-        }
-
+        uint256 actualBalance = _availableLiquidity();
         uint256 requiredBalance = accountedAssets + _previewScheduledReward();
 
         if (actualBalance >= requiredBalance) {
@@ -174,11 +152,7 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
     }
 
     function availableExcessRewards() public view returns (uint256) {
-        uint256 totalBacking = IERC20(asset()).balanceOf(address(this));
-
-        if (address(hiveStrategy) != address(0)) {
-            totalBacking += hiveStrategy.principal();
-        }
+        uint256 totalBacking = _availableLiquidity();
 
         uint256 requiredBacking = accountedAssets + previewAccruedReward();
 
@@ -193,6 +167,47 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         return _accrueRewards();
     }
 
+    /// @inheritdoc ERC4626
+    function maxDeposit(
+        address receiver
+    ) public view override returns (uint256) {
+        if (paused()) {
+            return 0;
+        }
+        return super.maxDeposit(receiver);
+    }
+
+    /// @inheritdoc ERC4626
+    function maxMint(address receiver) public view override returns (uint256) {
+        if (paused()) {
+            return 0;
+        }
+        return super.maxMint(receiver);
+    }
+
+    /// @inheritdoc ERC4626
+    function maxWithdraw(address owner) public view override returns (uint256) {
+        if (paused()) {
+            return 0;
+        }
+        uint256 ownerAssets = previewRedeem(balanceOf(owner));
+        uint256 availableLiquidity = _availableLiquidity();
+
+        return Math.min(ownerAssets, availableLiquidity);
+    }
+
+    /// @inheritdoc ERC4626
+    function maxRedeem(address owner) public view override returns (uint256) {
+        if (paused()) {
+            return 0;
+        }
+        uint256 ownerShares = super.maxRedeem(owner);
+        uint256 availableShares = convertToShares(_availableLiquidity());
+
+        return Math.min(ownerShares, availableShares);
+    }
+
+    /// @inheritdoc ERC4626
     function deposit(
         uint256 assets,
         address receiver
@@ -212,6 +227,7 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         userSet.add(msg.sender);
     }
 
+    /// @inheritdoc ERC4626
     function mint(
         uint256 shares,
         address receiver
@@ -231,6 +247,7 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         userSet.add(msg.sender);
     }
 
+    /// @inheritdoc ERC4626
     function withdraw(
         uint256 assets,
         address receiver,
@@ -249,6 +266,7 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         accountedAssets -= assets;
     }
 
+    /// @inheritdoc ERC4626
     function redeem(
         uint256 shares,
         address receiver,
@@ -425,5 +443,28 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         if (balanceAfter < assets) {
             revert InsufficientLiquidity();
         }
+    }
+
+    function _availableLiquidity() internal view returns (uint256 liquidity) {
+        liquidity = IERC20(asset()).balanceOf(address(this));
+
+        if (address(hiveStrategy) != address(0)) {
+            liquidity += hiveStrategy.principal();
+        }
+    }
+
+    function _previewScheduledReward() internal view returns (uint256) {
+        if (accountedAssets == 0 || totalSupply() == 0 || apyBps == 0) {
+            return 0;
+        }
+
+        if (lastAccrualTime >= block.timestamp) {
+            return 0;
+        }
+
+        uint256 elapsed = block.timestamp - lastAccrualTime;
+
+        // Rewards accrue linearly between settlements using the configured annual rate.
+        return Math.mulDiv(accountedAssets, apyBps * elapsed, BPS * YEAR);
     }
 }
