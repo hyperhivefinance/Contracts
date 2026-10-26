@@ -318,13 +318,8 @@ contract HiveMarket is ERC4626, Ownable, Pausable, ReentrancyGuard {
         emit WithdrawToleranceChanged(oldTolerance, _withdrawTolerance);
     }
 
-    function setApyBps(
-        uint256 _apyBps,
-        bool needAccrue
-    ) external onlyOwner nonReentrant {
-        if (needAccrue) {
-            _accrueRewards();
-        }
+    function setApyBps(uint256 _apyBps) external onlyOwner nonReentrant {
+        _accrueRewards();
 
         uint256 _oldBps = apyBps;
         apyBps = _apyBps;
